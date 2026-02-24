@@ -1,0 +1,9 @@
+.idea/
+.logfire/
+venv/
+.venv/
+tmp/*
+src/__pycache__/
+__pycache__/
+.env
+data/*
