@@ -91,8 +91,17 @@ class App:
         else:
             logger.warning("No text to insert")
 
+    async def on_ptt_cancel(self) -> None:
+        """Handle PTT cancel - stop recording and discard (combo key detected)."""
+        try:
+            audio = self.recorder.stop()
+            duration = len(audio) / self.recorder.samplerate
+            logger.info("Recording cancelled (combo detected, %.1fs discarded)", duration)
+        except Exception:
+            logger.exception("Failed to stop recording on cancel")
+
     async def run(self) -> None:
         """Run the PTT listener loop."""
         logger.info("PTT active. Hold %s to record.", config.PTT_KEY)
         logger.info("Ctrl+C to exit.")
-        await self.ptt.listen(self.on_ptt_press, self.on_ptt_release)
+        await self.ptt.listen(self.on_ptt_press, self.on_ptt_release, self.on_ptt_cancel)

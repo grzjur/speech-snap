@@ -21,6 +21,8 @@ class PTTListener:
         self.ptt_key = ptt_key
         self._validate_ptt_key()
         self.devices = self._find_keyboards()
+        self._ptt_active: bool = False
+        self._combo_detected: bool = False
 
     def _validate_ptt_key(self) -> None:
         """Validate that PTT_KEY is a valid evdev key code."""
@@ -65,17 +67,37 @@ class PTTListener:
         device: InputDevice,
         on_press: Callable[[], Awaitable[None]],
         on_release: Callable[[], Awaitable[None]],
+        on_cancel: Callable[[], Awaitable[None]],
     ) -> None:
         """Listens on a single device."""
         ptt_code = getattr(ecodes, self.ptt_key)
 
         try:
             async for event in device.async_read_loop():
-                if event.type == ecodes.EV_KEY and event.code == ptt_code:
-                    if event.value == 1:  # Key press
+                if event.type != ecodes.EV_KEY:
+                    continue
+
+                if event.code == ptt_code:
+                    if event.value == 1:  # PTT pressed
+                        self._ptt_active = True
+                        self._combo_detected = False
+                        active = device.active_keys()
+                        if any(k != ptt_code for k in active):
+                            self._combo_detected = True
+                            logger.debug("Combo at PTT press (active keys: %s)", active)
                         await on_press()
-                    elif event.value == 0:  # Key release
-                        await on_release()
+                    elif event.value == 0:  # PTT released
+                        self._ptt_active = False
+                        if self._combo_detected:
+                            logger.debug("Combo detected - cancelling recording")
+                            await on_cancel()
+                        else:
+                            await on_release()
+                else:
+                    # Non-PTT key pressed while PTT is held
+                    if self._ptt_active and event.value == 1:
+                        self._combo_detected = True
+                        logger.debug("Combo key detected: code=%d", event.code)
         except Exception:
             logger.exception("Error listening on device %s", device.name)
 
@@ -83,16 +105,20 @@ class PTTListener:
         self,
         on_press: Callable[[], Awaitable[None]],
         on_release: Callable[[], Awaitable[None]],
+        on_cancel: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         """
         Listens for PTT key on all keyboards.
 
         Args:
             on_press: async callback called when key is pressed
-            on_release: async callback called when key is released
+            on_release: async callback called when key is released (no combo)
+            on_cancel: async callback called when key is released after a combo key
+                       was pressed; if None, on_release is used as fallback
         """
+        effective_cancel = on_cancel if on_cancel is not None else on_release
         tasks = [
-            self._listen_device(device, on_press, on_release)
+            self._listen_device(device, on_press, on_release, effective_cancel)
             for device in self.devices
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)

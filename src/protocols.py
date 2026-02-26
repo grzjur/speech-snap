@@ -64,12 +64,15 @@ class KeyboardListenerProtocol(Protocol):
         self,
         on_press: Callable[[], Awaitable[None]],
         on_release: Callable[[], Awaitable[None]],
+        on_cancel: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         """Listen for key events.
 
         Args:
             on_press: async callback called when key is pressed
-            on_release: async callback called when key is released
+            on_release: async callback called when key is released (no combo)
+            on_cancel: async callback called when key is released after a combo key
+                       was pressed; if None, on_release is used as fallback
         """
         ...
 
